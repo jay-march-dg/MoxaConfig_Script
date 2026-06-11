@@ -9,7 +9,7 @@ eCOS= V2.4.0
 ----------
 MOD_TYPE=E1210 -Remote Ethernet I/O Server 
 MOD_LOC=
-MOD_NAME=
+MOD_NAME=TEST TEST THIS SHIT WORKS
 
 [2. I/O Configurations]
 -----------------------
