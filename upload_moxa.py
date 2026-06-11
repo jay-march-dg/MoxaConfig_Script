@@ -54,7 +54,7 @@ def save_adapter_name(adapter_name: str) -> None:
 ADAPTER_NAME = get_default_adapter_name()
 RDP_MODE = os.environ.get("MOXA_RDP_MODE", "0").lower() in {"1", "true", "yes", "on"}
 NETWORK_SETTLE_TIME = int(os.environ.get("MOXA_NETWORK_SETTLE_TIME", "6"))
-POST_RESTART_WAIT = int(os.environ.get("MOXA_POST_RESTART_WAIT", "10"))
+POST_RESTART_WAIT = int(os.environ.get("MOXA_POST_RESTART_WAIT", "4"))
 POLL_INTERVAL = int(os.environ.get("MOXA_POLL_INTERVAL", "5"))
 POLL_TIMEOUT = int(os.environ.get("MOXA_POLL_TIMEOUT", "180"))
 DEFAULT_ADAPTER_HOST = 100
@@ -503,19 +503,15 @@ def get_target_base_ip(args: argparse.Namespace, device: DeviceRecord) -> str:
 
 
 def wait_for_device(base: str, opener, timeout: int = POLL_TIMEOUT) -> bool:
-	deadline = time.time() + timeout
-	while time.time() < deadline:
-		for path in ("01.htm", "status.html", ""):
-			verify_url = urljoin(base, path)
-			try:
-				status, _, _ = open_url(opener, verify_url, method="GET")
-				if status < 400:
-					_tick(f"Device verified at {_host_from_base(base)} after restart")
-					return True
-			except MoxaUploadError:
-				pass
-		print(f"  Waiting {POLL_INTERVAL}s before retrying the new IP...")
-		time.sleep(POLL_INTERVAL)
+	for path in ("01.htm", "status.html", ""):
+		verify_url = urljoin(base, path)
+		try:
+			status, _, _ = open_url(opener, verify_url, method="GET")
+			if status < 400:
+				_tick(f"Device verified at {_host_from_base(base)} after restart")
+				return True
+		except MoxaUploadError:
+			pass
 	return False
 
 
@@ -549,17 +545,18 @@ def main() -> int:
 		rewritten_template = rewrite_template(raw_template, device)
 		rendered_bytes = rewritten_template.encode("latin-1")
 		gateway_ip = derive_gateway_ip(device)
-		laptop_ip = choose_laptop_ip(device) if args.a2 else choose_default_laptop_ip()
+		initial_laptop_ip = choose_laptop_ip(device) if args.a2 else choose_default_laptop_ip()
+		post_restart_laptop_ip = choose_laptop_ip(device)
 		upload_mode = "device IP" if args.a2 else "default IP"
 
-		print_plan(device, template_path, laptop_ip, gateway_ip, upload_mode)
+		print_plan(device, template_path, initial_laptop_ip, gateway_ip, upload_mode)
 
 		if args.dry_run:
 			print("Dry run requested; no network changes were made.")
 			return 0
 
 		if not args.skip_adapter_change:
-			initial_ip = laptop_ip
+			initial_ip = initial_laptop_ip
 			if not set_adapter_ip(initial_ip, DEFAULT_SUBNET_MASK, adapter=args.adapter_name):
 				return 1
 
@@ -572,8 +569,8 @@ def main() -> int:
 
 		restart_device(opener, target_base, args)
 
-		if not args.skip_adapter_change and not args.a2:
-			if not set_adapter_ip(laptop_ip, DEFAULT_SUBNET_MASK, adapter=args.adapter_name):
+		if not args.skip_adapter_change:
+			if not set_adapter_ip(post_restart_laptop_ip, DEFAULT_SUBNET_MASK, adapter=args.adapter_name):
 				return 1
 
 		for remaining in range(POST_RESTART_WAIT, -1, -1):
@@ -585,8 +582,8 @@ def main() -> int:
 		verify_base = base_url(args, device.ip_address)
 		_print_kv("Verifying:", _host_from_base(verify_base))
 		if wait_for_device(verify_base, opener):
-			if not args.skip_adapter_change and not args.a2:
-				_tick(f"Adapter is now configured for: {laptop_ip}")
+			if not args.skip_adapter_change:
+				_tick(f"Adapter is now configured for: {post_restart_laptop_ip}")
 			_tick(f"Done! '{device.device_name}' configured successfully.")
 			return 0
 
