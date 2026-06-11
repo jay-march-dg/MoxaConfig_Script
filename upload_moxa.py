@@ -303,7 +303,7 @@ def submit_login(opener, base: str, page_url: str, page_text: str, password: str
 		return False
 
 	hashed_password = hashlib.md5((password + token_value).encode("latin-1")).hexdigest()
-	fields = {"Token": token_value, "Password": hashed_password}
+	fields = {"Token": token_value, "Password": hashed_password, "Submit": "Submit"}
 	body = urlencode(fields).encode("utf-8")
 	status, response_text, _ = open_url(
 		opener,
