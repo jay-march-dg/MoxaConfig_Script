@@ -3,10 +3,12 @@ from __future__ import annotations
 import argparse
 import csv
 import hashlib
+import json
 import ipaddress
 import os
 import re
 import subprocess
+import sys
 import time
 from dataclasses import dataclass
 from http.cookiejar import CookieJar
@@ -20,6 +22,7 @@ from urllib.request import HTTPCookieProcessor, Request, build_opener
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEVICE_LIST_PATH = SCRIPT_DIR / "deviceList.csv"
 DEFAULT_TEMPLATE_DIR = SCRIPT_DIR
+SETTINGS_PATH = SCRIPT_DIR / "moxa_settings.json"
 
 DEFAULT_DEVICE_IP = "192.168.127.254"
 DEFAULT_SUBNET_MASK = "255.255.255.0"
@@ -30,9 +33,27 @@ DEFAULT_UPLOAD_ACTION = "06_5_1.htm"
 DEFAULT_RESTART_PAGE = "09.htm"
 DEFAULT_RESTART_ACTION = "09_1.htm"
 
-ADAPTER_NAME = os.environ.get("MOXA_ADAPTER_NAME", "Ethernet")
+def load_settings() -> dict[str, str]:
+	if not SETTINGS_PATH.exists():
+		return {}
+	try:
+		return json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+	except (OSError, json.JSONDecodeError):
+		return {}
+
+
+def get_default_adapter_name() -> str:
+	settings = load_settings()
+	return settings.get("adapter_name") or os.environ.get("MOXA_ADAPTER_NAME", "Ethernet")
+
+
+def save_adapter_name(adapter_name: str) -> None:
+	SETTINGS_PATH.write_text(json.dumps({"adapter_name": adapter_name}, indent=2), encoding="utf-8")
+
+
+ADAPTER_NAME = get_default_adapter_name()
 RDP_MODE = os.environ.get("MOXA_RDP_MODE", "0").lower() in {"1", "true", "yes", "on"}
-NETWORK_SETTLE_TIME = int(os.environ.get("MOXA_NETWORK_SETTLE_TIME", "4"))
+NETWORK_SETTLE_TIME = int(os.environ.get("MOXA_NETWORK_SETTLE_TIME", "6"))
 POST_RESTART_WAIT = int(os.environ.get("MOXA_POST_RESTART_WAIT", "10"))
 POLL_INTERVAL = int(os.environ.get("MOXA_POLL_INTERVAL", "5"))
 POLL_TIMEOUT = int(os.environ.get("MOXA_POLL_TIMEOUT", "180"))
@@ -61,6 +82,23 @@ def _arrow(msg: str) -> None:
 
 def _host_from_base(base: str) -> str:
 	return base.split("//", 1)[1].rstrip("/").split("/")[0]
+
+
+def _extract_adapter_name_from_argv(argv: list[str]) -> Optional[str]:
+	if len(argv) < 3:
+		return None
+
+	first = argv[1].strip().lower()
+	second = argv[2].strip().lower()
+	if first == "set-adapter":
+		parts = [part for part in argv[2:] if part not in {"=", ":"}]
+		return " ".join(parts).strip() or None
+
+	if first == "set" and second == "adapter":
+		parts = [part for part in argv[3:] if part not in {"=", ":", "to"}]
+		return " ".join(parts).strip() or None
+
+	return None
 
 
 
@@ -103,6 +141,18 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument("--debug-http", action="store_true", help="Print HTTP response snippets when requests fail")
 	parser.add_argument("--dry-run", action="store_true", help="Print the plan without changing anything")
 	return parser.parse_args()
+
+
+def handle_set_adapter_command(argv: list[str]) -> int | None:
+	adapter_name = _extract_adapter_name_from_argv(argv)
+	if not adapter_name:
+		return None
+
+	save_adapter_name(adapter_name)
+	print(f"Adapter name saved: {adapter_name}")
+	print(f"Settings file: {SETTINGS_PATH}")
+	print("Future runs will use this adapter name unless overridden with --adapter-name.")
+	return 0
 
 
 def load_device_record(device_list_path: Path, device_name: str) -> DeviceRecord:
@@ -211,8 +261,12 @@ def set_adapter_ip(ip: str, mask: str, adapter: str = ADAPTER_NAME) -> bool:
 			return False
 
 		_tick(f"Adapter set to {ip}")
-		print(f"  Waiting {NETWORK_SETTLE_TIME}s for adapter to settle...")
-		time.sleep(NETWORK_SETTLE_TIME)
+		for remaining in range(NETWORK_SETTLE_TIME, -1, -1):
+			print(f"\r  Waiting {remaining}s for adapter to settle...", end="", flush=True)
+			if remaining:
+				time.sleep(1)
+		print()
+		print()
 		return True
 	except subprocess.TimeoutExpired:
 		print("  ✗ netsh command timed out.")
@@ -479,6 +533,10 @@ def print_plan(device: DeviceRecord, template_path: Path, laptop_ip: str, gatewa
 
 
 def main() -> int:
+	set_adapter_result = handle_set_adapter_command(sys.argv)
+	if set_adapter_result is not None:
+		return set_adapter_result
+
 	args = parse_args()
 	global RDP_MODE
 	if args.rdp:
