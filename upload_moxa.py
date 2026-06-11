@@ -71,6 +71,7 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument("--restart-page", default=DEFAULT_RESTART_PAGE, help="Restart page path")
 	parser.add_argument("--restart-action", default=DEFAULT_RESTART_ACTION, help="Restart POST target")
 	parser.add_argument("--adapter-name", default=ADAPTER_NAME, help="Windows adapter name to reconfigure")
+	parser.add_argument("--a2", action="store_true", help="Upload to the device IP instead of the default IP")
 	parser.add_argument("--rdp", action="store_true", help="Skip adapter IP changes for remote/RDP runs")
 	parser.add_argument("--skip-adapter-change", action="store_true", help="Do not change the Windows adapter IP")
 	parser.add_argument("--dry-run", action="store_true", help="Print the plan without changing anything")
@@ -151,6 +152,16 @@ def choose_laptop_ip(device: DeviceRecord) -> str:
 	return choose_host_ip(
 		network,
 		excluded_hosts={device_host, gateway_host},
+		preferred=DEFAULT_ADAPTER_HOST,
+		fallbacks=(101, 102, 150, 200, 50, 75, 125),
+	)
+
+
+def choose_default_laptop_ip() -> str:
+	network = DEFAULT_TEMPLATE_NETWORK
+	return choose_host_ip(
+		network,
+		excluded_hosts={int(DEFAULT_DEVICE_IP.split(".")[-1]), DEFAULT_GATEWAY_HOST},
 		preferred=DEFAULT_ADAPTER_HOST,
 		fallbacks=(101, 102, 150, 200, 50, 75, 125),
 	)
@@ -322,6 +333,10 @@ def restart_device(opener, base: str, args: argparse.Namespace) -> None:
 		print(f"  Restart response: {' '.join(response_text.split())[:240]}")
 
 
+def get_target_base_ip(args: argparse.Namespace, device: DeviceRecord) -> str:
+	return device.ip_address if args.a2 else DEFAULT_DEVICE_IP
+
+
 def wait_for_device(base: str, opener, timeout: int = POLL_TIMEOUT) -> bool:
 	deadline = time.time() + timeout
 	while time.time() < deadline:
@@ -339,7 +354,7 @@ def wait_for_device(base: str, opener, timeout: int = POLL_TIMEOUT) -> bool:
 	return False
 
 
-def print_plan(device: DeviceRecord, template_path: Path, laptop_ip: str, gateway_ip: str) -> None:
+def print_plan(device: DeviceRecord, template_path: Path, laptop_ip: str, gateway_ip: str, upload_mode: str) -> None:
 	print(f"\n{'=' * 50}")
 	print(f"    MOXA CONFIG UPLOADER")
 	print(f"{'=' * 50}\n")
@@ -349,6 +364,7 @@ def print_plan(device: DeviceRecord, template_path: Path, laptop_ip: str, gatewa
 	print(f"  Target gateway: {gateway_ip}")
 	print(f"  Laptop adapter IP on target subnet: {laptop_ip}")
 	print(f"  Template: {template_path.name}\n")
+	print(f"  Upload mode: {upload_mode}\n")
 
 
 def main() -> int:
@@ -364,38 +380,41 @@ def main() -> int:
 		rewritten_template = rewrite_template(raw_template, device)
 		rendered_bytes = rewritten_template.encode("latin-1")
 		gateway_ip = derive_gateway_ip(device)
-		laptop_ip = choose_laptop_ip(device)
+		laptop_ip = choose_laptop_ip(device) if args.a2 else choose_default_laptop_ip()
+		upload_mode = "device IP" if args.a2 else "default IP"
 
-		print_plan(device, template_path, laptop_ip, gateway_ip)
+		print_plan(device, template_path, laptop_ip, gateway_ip, upload_mode)
 
 		if args.dry_run:
 			print("Dry run requested; no network changes were made.")
 			return 0
 
 		if not args.skip_adapter_change:
-			if not set_adapter_ip(DEFAULT_DEVICE_IP, DEFAULT_SUBNET_MASK, adapter=args.adapter_name):
+			initial_ip = laptop_ip
+			if not set_adapter_ip(initial_ip, DEFAULT_SUBNET_MASK, adapter=args.adapter_name):
 				return 1
 
 		cookie_jar = CookieJar()
 		opener = build_opener(HTTPCookieProcessor(cookie_jar))
-		default_base = base_url(args, DEFAULT_DEVICE_IP)
+		target_base_ip = get_target_base_ip(args, device)
+		target_base = base_url(args, target_base_ip)
 
-		print(f"  Uploading template to {default_base}")
-		upload_template(opener, default_base, args, rendered_bytes, template_path.name)
+		print(f"  Uploading template to {target_base}")
+		upload_template(opener, target_base, args, rendered_bytes, template_path.name)
 
 		print("  Sending restart command...")
-		restart_device(opener, default_base, args)
+		restart_device(opener, target_base, args)
 
-		if not args.skip_adapter_change:
+		if not args.skip_adapter_change and not args.a2:
 			if not set_adapter_ip(laptop_ip, DEFAULT_SUBNET_MASK, adapter=args.adapter_name):
 				return 1
 
 		print(f"  Waiting {POST_RESTART_WAIT}s for the device to reboot...")
 		time.sleep(POST_RESTART_WAIT)
 
-		new_base = base_url(args, device.ip_address)
-		print(f"  Verifying device at {new_base}")
-		if wait_for_device(new_base, opener):
+		verify_base = base_url(args, device.ip_address)
+		print(f"  Verifying device at {verify_base}")
+		if wait_for_device(verify_base, opener):
 			print("Success: device responded at its configured IP.")
 			return 0
 

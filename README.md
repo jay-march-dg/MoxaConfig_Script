@@ -25,6 +25,11 @@
 - Posts a restart request (default `09_1.htm`) and waits for the device to boot.
 - Switches the laptop adapter to a host on the device's target subnet (so it can reach the device at its new IP) and polls for a successful GET.
 
+**Upload modes**
+- Default mode uploads to the device's default management IP `192.168.127.254`.
+- `--a2` mode uploads to the device's configured IP from `deviceList.csv` instead of the default IP.
+- In both modes, the laptop adapter is set to a different host on the same subnet as the target device IP.
+
 **CSV format**
 - Required columns: `device_name,device_type,ip_address`.
 - Example row: `1A-RIO-SDT-06A-1,1210,10.1.54.30`.
@@ -57,6 +62,12 @@ python upload_moxa.py 1A-RIO-SDT-06A-1 --skip-adapter-change
 
 ```powershell
 python upload_moxa.py 1A-RIO-SDT-06A-1 --rdp
+```
+
+- A2 mode (upload directly to the device IP instead of the default IP):
+
+```powershell
+python upload_moxa.py 1A-RIO-SDT-06A-1 --a2
 ```
 
 **Environment variables**
