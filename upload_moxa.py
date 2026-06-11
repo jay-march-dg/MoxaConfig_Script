@@ -518,12 +518,14 @@ def main() -> int:
 			if not set_adapter_ip(laptop_ip, DEFAULT_SUBNET_MASK, adapter=args.adapter_name):
 				return 1
 
-		print(f"  Waiting {POST_RESTART_WAIT}s for the device to reboot...")
+		for remaining in range(POST_RESTART_WAIT, -1, -1):
+			print(f"\r  Waiting {remaining}s for the device to reboot...", end="", flush=True)
+			time.sleep(1)
 		print()
-		time.sleep(POST_RESTART_WAIT)
+		print()
 
 		verify_base = base_url(args, device.ip_address)
-		_print_kv("Verifying:", verify_base)
+		_print_kv("Verifying:", _host_from_base(verify_base))
 		if wait_for_device(verify_base, opener):
 			if not args.skip_adapter_change and not args.a2:
 				_tick(f"Adapter is now configured for: {laptop_ip}")
