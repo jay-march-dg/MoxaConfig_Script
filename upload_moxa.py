@@ -77,6 +77,7 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument("--rdp", action="store_true", help="Skip adapter IP changes for remote/RDP runs")
 	parser.add_argument("--skip-adapter-change", action="store_true", help="Do not change the Windows adapter IP")
 	parser.add_argument("--password", default=MOXA_PASSWORD, help="Moxa web password")
+	parser.add_argument("--debug-http", action="store_true", help="Print HTTP response snippets when requests fail")
 	parser.add_argument("--dry-run", action="store_true", help="Print the plan without changing anything")
 	return parser.parse_args()
 
@@ -294,7 +295,7 @@ def looks_like_password_prompt(page_text: str) -> bool:
 	return bool(re.search(r"Input Password", page_text, re.IGNORECASE))
 
 
-def submit_login(opener, base: str, page_url: str, page_text: str, password: str) -> bool:
+def submit_login(opener, base: str, page_url: str, page_text: str, password: str, debug_http: bool = False) -> bool:
 	action = extract_form_action(page_text)
 	login_url = urljoin(base, action or page_url)
 	hidden_fields = extract_form_inputs(page_text)
@@ -312,16 +313,24 @@ def submit_login(opener, base: str, page_url: str, page_text: str, password: str
 		data=body,
 		headers={"Content-Type": "application/x-www-form-urlencoded"},
 	)
+	if debug_http:
+		snippet = " ".join(response_text.split())[:400]
+		print(f"  [debug] login POST status={status} url={login_url}")
+		if snippet:
+			print(f"  [debug] login response: {snippet}")
 	return status < 400 and not looks_like_password_prompt(response_text)
 
 
-def ensure_authenticated(opener, base: str, page_url: str, password: str) -> None:
+def ensure_authenticated(opener, base: str, page_url: str, password: str, debug_http: bool = False) -> None:
 	status, page_text, _ = open_url(opener, page_url, method="GET")
 	if status >= 400:
 		raise MoxaUploadError(f"Authentication probe failed for {page_url}: HTTP {status}")
 
 	if looks_like_password_prompt(page_text):
-		if not submit_login(opener, base, page_url, page_text, password):
+		if not submit_login(opener, base, page_url, page_text, password, debug_http=debug_http):
+			snippet = " ".join(page_text.split())[:400]
+			if debug_http:
+				print(f"  [debug] password prompt page: {snippet}")
 			raise MoxaUploadError(f"Password prompt was shown but login failed for {page_url}")
 
 
@@ -331,7 +340,7 @@ def base_url(args: argparse.Namespace, ip_address: str) -> str:
 
 def upload_template(opener, base: str, args: argparse.Namespace, rendered_template: bytes, filename: str) -> None:
 	upload_page_url = urljoin(base, args.upload_page)
-	ensure_authenticated(opener, base, upload_page_url, args.password)
+	ensure_authenticated(opener, base, upload_page_url, args.password, debug_http=args.debug_http)
 	status, page_text, _ = open_url(opener, upload_page_url, method="GET")
 	if status >= 400:
 		raise MoxaUploadError(f"Upload page request failed: HTTP {status}")
@@ -365,7 +374,7 @@ def upload_template(opener, base: str, args: argparse.Namespace, rendered_templa
 
 def restart_device(opener, base: str, args: argparse.Namespace) -> None:
 	restart_page_url = urljoin(base, args.restart_page)
-	ensure_authenticated(opener, base, restart_page_url, args.password)
+	ensure_authenticated(opener, base, restart_page_url, args.password, debug_http=args.debug_http)
 	status, page_text, _ = open_url(opener, restart_page_url, method="GET")
 	if status >= 400:
 		raise MoxaUploadError(f"Restart page request failed: HTTP {status}")
