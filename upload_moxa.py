@@ -41,6 +41,25 @@ DEFAULT_GATEWAY_HOST = 1
 MOXA_PASSWORD = os.environ.get("MOXA_PASSWORD", "moxa")
 
 
+def _print_header(title: str) -> None:
+	print(f"\n{'=' * 50}")
+	print(f"  {title}")
+	print(f"{'=' * 50}\n")
+
+
+def _print_kv(label: str, value: str, label_width: int = 14) -> None:
+	print(f"  {label.ljust(label_width)} {value}")
+
+
+def _tick(msg: str) -> None:
+	print(f"  ✓ {msg}")
+
+
+def _arrow(msg: str) -> None:
+	print(f"  → {msg}")
+
+
+
 @dataclass(frozen=True)
 class DeviceRecord:
 	device_name: str
@@ -174,7 +193,7 @@ def choose_default_laptop_ip() -> str:
 def set_adapter_ip(ip: str, mask: str, adapter: str = ADAPTER_NAME) -> bool:
 	"""Set a static IP on the Windows Ethernet adapter using netsh."""
 	if RDP_MODE:
-		print(f"  [RDP] Skipping adapter change: {adapter} -> {ip} / {mask}")
+		_arrow(f"[RDP] Skipping adapter change: {adapter} → {ip} / {mask}")
 		return True
 
 	print(f"  Setting {adapter} to {ip} / {mask} ...")
@@ -187,8 +206,8 @@ def set_adapter_ip(ip: str, mask: str, adapter: str = ADAPTER_NAME) -> bool:
 			print(f"  ✗ Failed to set adapter IP: {error_msg}")
 			return False
 
-		print(f"  ✓ Adapter set to {ip}")
-		print(f"  Waiting {NETWORK_SETTLE_TIME}s for adapter to settle...")
+			_tick(f"Adapter set to {ip}")
+			_print_kv("", f"Waiting {NETWORK_SETTLE_TIME}s for adapter to settle...")
 		time.sleep(NETWORK_SETTLE_TIME)
 		return True
 	except subprocess.TimeoutExpired:
@@ -356,16 +375,19 @@ def upload_template(opener, base: str, args: argparse.Namespace, rendered_templa
 	token = extract_token(page_text)
 	if not token:
 		raise MoxaUploadError("Upload page did not expose a token field")
-
+	upload_target = urljoin(base, args.upload_action)
+	_print_kv("Uploading to:", upload_target)
 	body, boundary = build_multipart_body(
 		{"token": token, "NetConfig_OverWrite": "1", "import": "Import"},
 		"importfile",
 		filename,
 		rendered_template,
 	)
+	size_kb = len(body) / 1024.0
+	_print_kv("[API] Payload size:", f"{size_kb:.2f} KB")
 	status, response_text, final_url = open_url(
 		opener,
-		urljoin(base, args.upload_action),
+		upload_target,
 		method="POST",
 		data=body,
 		headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
@@ -373,13 +395,18 @@ def upload_template(opener, base: str, args: argparse.Namespace, rendered_templa
 	if status >= 400:
 		raise MoxaUploadError(f"Upload failed with HTTP {status} from {final_url}")
 
-	print(f"  ✓ Upload POST returned HTTP {status}")
+	_print_kv("[API] Response status code:", str(status))
 	if response_text.strip():
-		print(f"  Upload response: {' '.join(response_text.split())[:240]}")
+		snippet = ' '.join(response_text.split())[:240]
+		_print_kv("[API] Response text:", snippet)
+	host = base.split("//", 1)[1].rstrip('/').split('/')[0]
+	_tick(f"Upload successful via {host}!")
+	_arrow("Config uploaded successfully. Preparing for restart...")
 
 
 def restart_device(opener, base: str, args: argparse.Namespace) -> None:
 	restart_page_url = urljoin(base, args.restart_page)
+	_print_kv("Sending restart command to:", base.rstrip('/'))
 	ensure_authenticated(opener, base, restart_page_url, args.password, debug_http=args.debug_http)
 	status, page_text, _ = open_url(opener, restart_page_url, method="GET")
 	if status >= 400:
@@ -409,9 +436,11 @@ def restart_device(opener, base: str, args: argparse.Namespace) -> None:
 	if status >= 400:
 		raise MoxaUploadError(f"Restart POST failed with HTTP {status} from {final_url}")
 
-	print(f"  ✓ Restart POST returned HTTP {status}")
+	_print_kv("[API] Response status code:", str(status))
 	if response_text.strip():
-		print(f"  Restart response: {' '.join(response_text.split())[:240]}")
+		snippet = ' '.join(response_text.split())[:240]
+		_print_kv("[API] Response text:", snippet)
+	_tick("Restart command sent (device restarting)")
 
 
 def get_target_base_ip(args: argparse.Namespace, device: DeviceRecord) -> str:
@@ -426,26 +455,27 @@ def wait_for_device(base: str, opener, timeout: int = POLL_TIMEOUT) -> bool:
 			try:
 				status, _, _ = open_url(opener, verify_url, method="GET")
 				if status < 400:
-					print(f"  ✓ Device reachable at {verify_url} (HTTP {status})")
+					host = base.split("//", 1)[1].rstrip('/').split('/')[0]
+					_tick(f"Device verified at {host} after restart")
 					return True
 			except MoxaUploadError:
 				pass
-		print(f"  Waiting {POLL_INTERVAL}s before retrying the new IP...")
+		_print_kv("", f"Waiting {POLL_INTERVAL}s before retrying the new IP...")
 		time.sleep(POLL_INTERVAL)
 	return False
 
 
 def print_plan(device: DeviceRecord, template_path: Path, laptop_ip: str, gateway_ip: str, upload_mode: str) -> None:
-	print(f"\n{'=' * 50}")
-	print(f"    MOXA CONFIG UPLOADER")
-	print(f"{'=' * 50}\n")
-	print(f"  Device: {device.device_name}")
-	print(f"  Type: {device.device_type}")
-	print(f"  Current IP: {device.ip_address}")
-	print(f"  Target gateway: {gateway_ip}")
-	print(f"  Laptop adapter IP on target subnet: {laptop_ip}")
-	print(f"  Template: {template_path.name}\n")
-	print(f"  Upload mode: {upload_mode}\n")
+	_print_header("MOXA CONFIG UPLOADER")
+	_print_kv("Device:", device.device_name)
+	_print_kv("Type:", device.device_type)
+	_print_kv("IP Address:", device.ip_address)
+	_print_kv("Gateway:", gateway_ip)
+	_print_kv("Template:", template_path.name)
+	_print_kv("Default IP:", DEFAULT_DEVICE_IP)
+	print()
+	_print_kv("Upload mode:", upload_mode)
+	print()
 
 
 def main() -> int:
@@ -480,23 +510,23 @@ def main() -> int:
 		target_base_ip = get_target_base_ip(args, device)
 		target_base = base_url(args, target_base_ip)
 
-		print(f"  Uploading template to {target_base}")
 		upload_template(opener, target_base, args, rendered_bytes, template_path.name)
 
-		print("  Sending restart command...")
 		restart_device(opener, target_base, args)
 
 		if not args.skip_adapter_change and not args.a2:
 			if not set_adapter_ip(laptop_ip, DEFAULT_SUBNET_MASK, adapter=args.adapter_name):
 				return 1
 
-		print(f"  Waiting {POST_RESTART_WAIT}s for the device to reboot...")
+		_print_kv("", f"Waiting {POST_RESTART_WAIT}s for the device to reboot...")
 		time.sleep(POST_RESTART_WAIT)
 
 		verify_base = base_url(args, device.ip_address)
-		print(f"  Verifying device at {verify_base}")
+		_print_kv("Verifying:", verify_base)
 		if wait_for_device(verify_base, opener):
-			print("Success: device responded at its configured IP.")
+			if not args.skip_adapter_change and not args.a2:
+				_tick(f"Adapter is now configured for: {laptop_ip}")
+			_tick(f"Done! '{device.device_name}' configured successfully.")
 			return 0
 
 		print("Device did not respond on the expected IP before timeout.")
