@@ -30,6 +30,11 @@
 - `--a2` mode uploads to the device's configured IP from `deviceList.csv` instead of the default IP.
 - In both modes, the laptop adapter is set to a different host on the same subnet as the target device IP.
 
+**Authentication**
+- The device may prompt for a password before allowing some pages or actions.
+- Use `--password` to supply the web password if it is different from the default value.
+- Default password value in the script is `moxa`.
+
 **CSV format**
 - Required columns: `device_name,device_type,ip_address`.
 - Example row: `1A-RIO-SDT-06A-1,1210,10.1.54.30`.
@@ -62,6 +67,12 @@ python upload_moxa.py 1A-RIO-SDT-06A-1 --skip-adapter-change
 
 ```powershell
 python upload_moxa.py 1A-RIO-SDT-06A-1 --rdp
+```
+
+- Device IP upload mode with password explicitly set:
+
+```powershell
+python upload_moxa.py 4A-RIO-TX-M11-R11 --a2 --password moxa
 ```
 
 - A2 mode (upload directly to the device IP instead of the default IP):

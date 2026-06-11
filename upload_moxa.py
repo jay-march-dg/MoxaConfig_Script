@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
 import ipaddress
 import os
 import re
@@ -12,7 +13,7 @@ from http.cookiejar import CookieJar
 from pathlib import Path
 from typing import Optional
 from urllib.error import HTTPError, URLError
-from urllib.parse import urljoin
+from urllib.parse import parse_qsl, urlencode, urljoin
 from urllib.request import HTTPCookieProcessor, Request, build_opener
 
 
@@ -37,6 +38,7 @@ POLL_INTERVAL = int(os.environ.get("MOXA_POLL_INTERVAL", "5"))
 POLL_TIMEOUT = int(os.environ.get("MOXA_POLL_TIMEOUT", "180"))
 DEFAULT_ADAPTER_HOST = 100
 DEFAULT_GATEWAY_HOST = 1
+MOXA_PASSWORD = os.environ.get("MOXA_PASSWORD", "moxa")
 
 
 @dataclass(frozen=True)
@@ -74,6 +76,7 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument("--a2", action="store_true", help="Upload to the device IP instead of the default IP")
 	parser.add_argument("--rdp", action="store_true", help="Skip adapter IP changes for remote/RDP runs")
 	parser.add_argument("--skip-adapter-change", action="store_true", help="Do not change the Windows adapter IP")
+	parser.add_argument("--password", default=MOXA_PASSWORD, help="Moxa web password")
 	parser.add_argument("--dry-run", action="store_true", help="Print the plan without changing anything")
 	return parser.parse_args()
 
@@ -271,15 +274,69 @@ def extract_token(page_text: str) -> Optional[str]:
 	return match.group(1) if match else None
 
 
+def extract_form_action(page_text: str) -> Optional[str]:
+	match = re.search(r'<form[^>]*action=["\']([^"\']+)["\']', page_text, re.IGNORECASE)
+	return match.group(1) if match else None
+
+
+def extract_form_inputs(page_text: str) -> dict[str, str]:
+	inputs: dict[str, str] = {}
+	for name, value in re.findall(
+		r'<input[^>]*name=["\']([^"\']+)["\'][^>]*value=["\']([^"\']*)["\']',
+		page_text,
+		re.IGNORECASE,
+	):
+		inputs[name] = value
+	return inputs
+
+
+def looks_like_password_prompt(page_text: str) -> bool:
+	return bool(re.search(r"Input Password", page_text, re.IGNORECASE))
+
+
+def submit_login(opener, base: str, page_url: str, page_text: str, password: str) -> bool:
+	action = extract_form_action(page_text)
+	login_url = urljoin(base, action or page_url)
+	hidden_fields = extract_form_inputs(page_text)
+	token_value = hidden_fields.get("Token") or hidden_fields.get("token")
+	if not token_value:
+		return False
+
+	hashed_password = hashlib.md5((password + token_value).encode("latin-1")).hexdigest()
+	fields = {"Token": token_value, "Password": hashed_password}
+	body = urlencode(fields).encode("utf-8")
+	status, response_text, _ = open_url(
+		opener,
+		login_url,
+		method="POST",
+		data=body,
+		headers={"Content-Type": "application/x-www-form-urlencoded"},
+	)
+	return status < 400 and not looks_like_password_prompt(response_text)
+
+
+def ensure_authenticated(opener, base: str, page_url: str, password: str) -> None:
+	status, page_text, _ = open_url(opener, page_url, method="GET")
+	if status >= 400:
+		raise MoxaUploadError(f"Authentication probe failed for {page_url}: HTTP {status}")
+
+	if looks_like_password_prompt(page_text):
+		if not submit_login(opener, base, page_url, page_text, password):
+			raise MoxaUploadError(f"Password prompt was shown but login failed for {page_url}")
+
+
 def base_url(args: argparse.Namespace, ip_address: str) -> str:
 	return f"{args.scheme}://{ip_address}/"
 
 
 def upload_template(opener, base: str, args: argparse.Namespace, rendered_template: bytes, filename: str) -> None:
 	upload_page_url = urljoin(base, args.upload_page)
+	ensure_authenticated(opener, base, upload_page_url, args.password)
 	status, page_text, _ = open_url(opener, upload_page_url, method="GET")
 	if status >= 400:
 		raise MoxaUploadError(f"Upload page request failed: HTTP {status}")
+	if looks_like_password_prompt(page_text):
+		raise MoxaUploadError("Upload page still shows a password prompt after login attempt")
 
 	token = extract_token(page_text)
 	if not token:
@@ -308,23 +365,32 @@ def upload_template(opener, base: str, args: argparse.Namespace, rendered_templa
 
 def restart_device(opener, base: str, args: argparse.Namespace) -> None:
 	restart_page_url = urljoin(base, args.restart_page)
+	ensure_authenticated(opener, base, restart_page_url, args.password)
 	status, page_text, _ = open_url(opener, restart_page_url, method="GET")
 	if status >= 400:
 		raise MoxaUploadError(f"Restart page request failed: HTTP {status}")
+	if looks_like_password_prompt(page_text):
+		raise MoxaUploadError("Restart page still shows a password prompt after login attempt")
 
 	token = extract_token(page_text)
-	fields = {"restart": "Restart"}
-	if token:
-		fields["token"] = token
-
-	body, boundary = build_multipart_body(fields, "dummy", "restart.txt", b"")
-	status, response_text, final_url = open_url(
-		opener,
-		urljoin(base, args.restart_action),
-		method="POST",
-		data=body,
-		headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
-	)
+	action = extract_form_action(page_text) or args.restart_action
+	if token and action:
+		query_string = urlencode({"token": token})
+		separator = "&" if "?" in action else "?"
+		restart_target = urljoin(base, f"{action}{separator}{query_string}")
+		status, response_text, final_url = open_url(opener, restart_target, method="GET")
+	else:
+		fields = {"restart": "Restart"}
+		if token:
+			fields["token"] = token
+		body, boundary = build_multipart_body(fields, "dummy", "restart.txt", b"")
+		status, response_text, final_url = open_url(
+			opener,
+			urljoin(base, action),
+			method="POST",
+			data=body,
+			headers={"Content-Type": f"multipart/form-data; boundary={boundary}"},
+		)
 	if status >= 400:
 		raise MoxaUploadError(f"Restart POST failed with HTTP {status} from {final_url}")
 
