@@ -340,12 +340,15 @@ def wait_for_device(base: str, opener, timeout: int = POLL_TIMEOUT) -> bool:
 
 
 def print_plan(device: DeviceRecord, template_path: Path, laptop_ip: str, gateway_ip: str) -> None:
-	print(f"Device: {device.device_name}")
+	print(f"\n{'=' * 50}")
+	print(f"    MOXA CONFIG UPLOADER")
+	print(f"{'=' * 50}\n")
+	print(f"  Device: {device.device_name}")
 	print(f"  Type: {device.device_type}")
 	print(f"  Current IP: {device.ip_address}")
 	print(f"  Target gateway: {gateway_ip}")
 	print(f"  Laptop adapter IP on target subnet: {laptop_ip}")
-	print(f"  Template: {template_path}")
+	print(f"  Template: {template_path.name}\n")
 
 
 def main() -> int:
