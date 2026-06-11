@@ -276,8 +276,14 @@ def extract_token(page_text: str) -> Optional[str]:
 
 
 def extract_form_action(page_text: str) -> Optional[str]:
-	match = re.search(r'<form[^>]*action=["\']([^"\']+)["\']', page_text, re.IGNORECASE)
-	return match.group(1) if match else None
+	match = re.search(
+		r'<form[^>]*action=(?:["\']([^"\']+)["\']|([^\s>]+))',
+		page_text,
+		re.IGNORECASE,
+	)
+	if not match:
+		return None
+	return match.group(1) or match.group(2)
 
 
 def extract_form_inputs(page_text: str) -> dict[str, str]:
