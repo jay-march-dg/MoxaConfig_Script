@@ -22,7 +22,7 @@ from urllib.request import HTTPCookieProcessor, Request, build_opener
 SCRIPT_DIR = Path(__file__).resolve().parent
 DEVICE_LIST_PATH = SCRIPT_DIR / "deviceList.csv"
 DEFAULT_TEMPLATE_DIR = SCRIPT_DIR
-SETTINGS_PATH = SCRIPT_DIR / "moxa_settings.json"
+SETTINGS_PATH = SCRIPT_DIR / "adapter_settings.json"
 
 DEFAULT_DEVICE_IP = "192.168.127.254"
 DEFAULT_SUBNET_MASK = "255.255.255.0"
