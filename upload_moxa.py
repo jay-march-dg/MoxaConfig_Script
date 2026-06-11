@@ -518,7 +518,7 @@ def main() -> int:
 			if not set_adapter_ip(laptop_ip, DEFAULT_SUBNET_MASK, adapter=args.adapter_name):
 				return 1
 
-		_print_kv(f"Waiting {POST_RESTART_WAIT}s for the device to reboot...")
+		_print_kv("", f"Waiting {POST_RESTART_WAIT}s for the device to reboot...")
 		time.sleep(POST_RESTART_WAIT)
 
 		verify_base = base_url(args, device.ip_address)
