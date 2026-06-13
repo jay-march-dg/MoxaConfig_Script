@@ -247,7 +247,7 @@ def choose_default_laptop_ip() -> str:
 def set_adapter_ip(ip: str, mask: str, adapter: str = ADAPTER_NAME) -> bool:
 	"""Set a static IP on the Windows Ethernet adapter using netsh."""
 	if RDP_MODE:
-		_arrow(f"[RDP] Skipping adapter change: {adapter} → {ip} / {mask}")
+		_arrow(f"[RDP] Skipping adapter change: {adapter} -> {ip} / {mask}")
 		return True
 
 	print(f"  Setting {adapter} to {ip} / {mask} ...")
@@ -257,7 +257,7 @@ def set_adapter_ip(ip: str, mask: str, adapter: str = ADAPTER_NAME) -> bool:
 		result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=15)
 		if result.returncode != 0:
 			error_msg = result.stderr.strip() or result.stdout.strip()
-			print(f"  ✗ Failed to set adapter IP: {error_msg}")
+			print(f"  [ERROR] Failed to set adapter IP: {error_msg}")
 			return False
 
 		_tick(f"Adapter set to {ip}")
@@ -269,10 +269,10 @@ def set_adapter_ip(ip: str, mask: str, adapter: str = ADAPTER_NAME) -> bool:
 		print()
 		return True
 	except subprocess.TimeoutExpired:
-		print("  ✗ netsh command timed out.")
+		print("  [ERROR] netsh command timed out.")
 		return False
 	except Exception as exc:
-		print(f"  ✗ Error setting adapter: {exc}")
+		print(f"  [ERROR] Error setting adapter: {exc}")
 		return False
 
 
