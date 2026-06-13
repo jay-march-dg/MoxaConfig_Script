@@ -48,22 +48,28 @@ if errorlevel 1 (
     exit /b 1
 )
 
-python -m pip install -r requirements.txt
+python -m pip install -r requirements.txt --no-cache-dir
 if errorlevel 1 (
     echo.
-    echo [!] Installation failed. Trying with user-level installation...
+    echo [!] Installation had issues. Attempting with user-level installation and no cache...
     echo.
-    python -m pip install --user -r requirements.txt
+    python -m pip install --user -r requirements.txt --no-cache-dir
     if errorlevel 1 (
-        echo [ERROR] Failed to install dependencies
-        echo.
-        echo Try running with administrator privileges:
-        echo   1. Right-click cmd.exe
-        echo   2. Select "Run as administrator"
-        echo   3. Navigate to this folder and run setup.bat
-        echo.
-        pause
-        exit /b 1
+        echo [!] Some packages failed, but this may be OK - checking if core packages are available...
+        python -c "import PySide6; print('[OK] PySide6 core is installed')" >nul 2>&1
+        if errorlevel 1 (
+            echo [ERROR] Failed to install dependencies
+            echo.
+            echo Try running with administrator privileges:
+            echo   1. Right-click cmd.exe
+            echo   2. Select "Run as administrator"
+            echo   3. Navigate to this folder and run setup.bat
+            echo.
+            pause
+            exit /b 1
+        ) else (
+            echo [OK] Core packages are available. Setup will continue.
+        )
     )
 )
 

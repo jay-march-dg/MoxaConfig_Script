@@ -1,99 +1,186 @@
 # Moxa Upload Automation
 
-**Overview**
-- **Purpose**: Upload a device configuration template to a Moxa E1210-series device, trigger a restart, and verify the device responds at its configured IP.
-- **Script**: `upload_moxa.py` — performs template rewrite, adapter IP reconfiguration, multipart POST to the device upload form, restart, and verification.
+**Purpose**: Upload a device configuration template to a Moxa E1210-series device, trigger a restart, and verify the device responds at its configured IP.
 
-**Files**
-- **Script**: `upload_moxa.py` — main automation script.
-- **Device list**: `deviceList.csv` — CSV of devices (columns: `device_name,device_type,ip_address`).
-- **Template**: `Moxa-Template-<device_type>.txt` — required template file (for your devices: `Moxa-Template-1210.txt`).
+## Quick Start
 
-**Prerequisites**
-- Windows machine with administrative privileges to run `netsh` (unless you use `--rdp` or `--skip-adapter-change`).
-- Python 3.8+ installed.
-- The script and files are located together in the `MoxaUpload_Script` folder.
+### 1. Install Dependencies
+Run the setup script once:
+```cmd
+setup.bat
+```
 
-**How it works (high level)**
-- Reads the target device from `deviceList.csv` by `device_name`.
-- Loads the exact template file `Moxa-Template-<device_type>.txt`.
-- Rewrites IPs in the template that are on the default template subnet (192.168.127.0/24) to match the device's subnet and IP:
-  - Any `.254` host in the template becomes the device IP (e.g. `192.168.127.254` -> `10.1.54.30`).
-  - The gateway is always set to host `.1` on the device subnet (e.g. `10.1.54.1`).
-- Temporarily configures the laptop adapter to a safe host on the device subnet (default host `100`) so it can reach the device at its default IP `192.168.127.254`.
-- Performs a `multipart/form-data` POST to the device upload endpoint (`06_5_1.htm`) with the rewritten template as `importfile` (the script first GETs the upload page `06_5.htm` to extract a `token`).
-- Posts a restart request (default `09_1.htm`) and waits for the device to boot.
-- Switches the laptop adapter to a host on the device's target subnet (so it can reach the device at its new IP) and polls for a successful GET.
+This installs Python dependencies automatically. See [SETUP_INSTRUCTIONS.md](SETUP_INSTRUCTIONS.md) for details.
 
-**Upload modes**
-- Default mode uploads to the device's default management IP `192.168.127.254`.
-- `--a2` mode uploads to the device's configured IP from `deviceList.csv` instead of the default IP.
-- In both modes, the laptop adapter is set to a different host on the same subnet as the target device IP.
+### 2. Run the GUI (Recommended)
+```cmd
+python moxa_gui.py
+```
 
-**Authentication**
-- The device may prompt for a password before allowing some pages or actions.
-- Use `--password` to supply the web password if it is different from the default value.
-- Default password value in the script is `moxa`.
+The GUI provides an easy-to-use interface to:
+- ✅ View and manage the device list
+- ✅ Upload configurations to devices
+- ✅ Configure adapter settings
+- ✅ View upload logs and status
 
-**CSV format**
-- Required columns: `device_name,device_type,ip_address`.
-- Example row: `1A-RIO-SDT-06A-1,1210,10.1.54.30`.
-- Note: The script derives gateway as host `1` of the device's subnet; do not rely on a `gateway` column unless the script is updated.
+### 3. Or Use Command-Line (Advanced)
+For scripting or automation, use the CLI:
+```cmd
+python upload_moxa.py DEVICE_NAME [options]
+```
 
-**Template requirements**
-- Filename must be exactly `Moxa-Template-<device_type>.txt` (e.g. `Moxa-Template-1210.txt`).
-- The template should use the default template subnet `192.168.127.x` for network fields that need rewriting. The script replaces those values to match the device IP and gateway.
+## Files
 
-**Usage**
-- Dry-run (recommended first):
+- **`moxa_gui.py`** — GUI application (recommended for most users)
+- **`upload_moxa.py`** — CLI automation script (for advanced/scripted use)
+- **`deviceList.csv`** — Device inventory (columns: `device_name,device_type,ip_address`)
+- **`Moxa-Template-<device_type>.txt`** — Configuration template (e.g., `Moxa-Template-1210.txt`)
+- **`setup.bat`** — Automated setup script (run once to install dependencies)
+- **`requirements.txt`** — Python package dependencies
 
-```powershell
+## Prerequisites
+
+- **Windows 10 or later**
+- **Python 3.8 or later** (install from [python.org](https://www.python.org/downloads/))
+  - Check "Add Python to PATH" during installation
+- **Administrator privileges** (for network adapter configuration via `netsh`)
+  - Can be skipped with `--rdp` or `--skip-adapter-change` flags
+
+## How It Works
+
+The upload process:
+1. Reads the target device from `deviceList.csv` by device name
+2. Loads the template file `Moxa-Template-<device_type>.txt`
+3. Rewrites IPs in the template from the default subnet (192.168.127.0/24) to match the device's target subnet:
+   - `.254` host in template → device IP (e.g., `192.168.127.254` → `10.1.54.30`)
+   - `.1` host in template → gateway IP (e.g., `192.168.127.1` → `10.1.54.1`)
+4. Temporarily configures laptop adapter to reach device on its default IP
+5. Uploads rewritten template via multipart POST
+6. Triggers device restart and waits for reboot
+7. Reconfigures adapter to reach device on its new IP
+8. Verifies device is responsive
+
+## Configuration
+
+### Device List (deviceList.csv)
+
+Required columns: `device_name`, `device_type`, `ip_address`
+
+Example:
+```csv
+device_name,device_type,ip_address
+1A-RIO-SDT-06A-1,1210,10.1.54.30
+1A-RIO-SDT-06A-2,1210,10.1.54.31
+```
+
+The gateway is automatically derived as `.1` on the device's subnet (e.g., `10.1.54.1`).
+
+### Template Files
+
+- Filename format: `Moxa-Template-<device_type>.txt` (e.g., `Moxa-Template-1210.txt`)
+- Template should use default subnet IPs (192.168.127.x) for fields that need rewriting
+- The script will rewrite these to match the target device's subnet
+
+### Authentication
+
+If the device requires a web password:
+- **GUI**: Enter password in the interface when prompted
+- **CLI**: Use `--password` flag (default is `moxa`)
+
+## Command-Line Usage (Advanced)
+
+For scripting or automation, use the CLI directly:
+
+### Dry-run (recommended first):
+```cmd
 python upload_moxa.py 1A-RIO-SDT-06A-1 --dry-run
 ```
 
-- Normal run (will attempt to change `netsh` adapter settings):
-
-```powershell
+### Normal run:
+```cmd
 python upload_moxa.py 1A-RIO-SDT-06A-1
 ```
 
-- Skip adapter changes (useful if adapter already on correct subnet):
-
-```powershell
+### Skip adapter changes (if already on correct subnet):
+```cmd
 python upload_moxa.py 1A-RIO-SDT-06A-1 --skip-adapter-change
 ```
 
-- RDP-safe mode (skip adapter changes; equivalent to setting `MOXA_RDP_MODE=1`):
-
-```powershell
+### RDP-safe mode (no adapter changes):
+```cmd
 python upload_moxa.py 1A-RIO-SDT-06A-1 --rdp
 ```
 
-- Device IP upload mode with password explicitly set:
-
-```powershell
-python upload_moxa.py 4A-RIO-TX-M11-R11 --a2 --password moxa
-```
-
-- A2 mode (upload directly to the device IP instead of the default IP):
-
-```powershell
+### Upload to device IP instead of default IP:
+```cmd
 python upload_moxa.py 1A-RIO-SDT-06A-1 --a2
 ```
 
-**Environment variables**
-- `MOXA_ADAPTER_NAME`: Windows adapter name (default `Ethernet`).
-- `MOXA_RDP_MODE`: set to `1` to prevent adapter changes (alternate to `--rdp`).
-- `MOXA_NETWORK_SETTLE_TIME`: seconds to wait after changing adapter IP (default `4`).
-- `MOXA_POST_RESTART_WAIT`: seconds to wait after restart before polling (default `10`).
+### With custom password:
+```cmd
+python upload_moxa.py 1A-RIO-SDT-06A-1 --password mypassword
+```
 
-**Safety notes**
-- The script uses `netsh` and requires administrative rights to change adapter settings unless using `--rdp`.
-- The device will reboot after the upload; ensure this is performed during a maintenance window.
-- The template must be in the correct device format; uploading an invalid template can leave the device improperly configured.
+### See all options:
+```cmd
+python upload_moxa.py --help
+```
 
-**Troubleshooting**
-- If upload returns `401/403` the device requires authentication or the token/cookies didn't match. Use the web UI first to confirm the flow and capture cookies if needed.
-- If device not reachable at new IP, check adapter IP, subnet mask, or the device boot progress.
+## Environment Variables
 
-If you want, I can add a small `requirements.txt`, an example template, and an integration test stub that runs `--dry-run` for a sample device.
+For advanced configuration (CLI mode):
+- `MOXA_ADAPTER_NAME`: Windows adapter name (default: `Ethernet`)
+- `MOXA_RDP_MODE`: Set to `1` to prevent adapter changes
+- `MOXA_NETWORK_SETTLE_TIME`: Seconds to wait after changing adapter IP (default: `6`)
+- `MOXA_POST_RESTART_WAIT`: Seconds to wait after restart before polling (default: `4`)
+- `MOXA_POLL_INTERVAL`: Seconds between device polling attempts (default: `5`)
+- `MOXA_POLL_TIMEOUT`: Max seconds to wait for device to be reachable (default: `180`)
+- `MOXA_PASSWORD`: Default web password (default: `moxa`)
+
+## Troubleshooting
+
+### General Issues
+
+**"Python is not installed or not found"**
+- Install Python 3.8+ from [python.org](https://www.python.org/downloads/)
+- Make sure "Add Python to PATH" is checked during installation
+- Restart your terminal after installing
+
+**"ModuleNotFoundError: No module named 'PySide6'"**
+- Run `setup.bat` to install dependencies
+- Or manually run: `python -m pip install PySide6`
+
+**"Permission denied" or adapter configuration fails**
+- Run Command Prompt as Administrator
+- Or use `--skip-adapter-change` or `--rdp` flags to skip adapter changes
+
+### Device Upload Issues
+
+**Device returns 401/403 error**
+- The device may require authentication
+- Verify the password is correct (default is `moxa`)
+- Try uploading through the web UI first to confirm connectivity
+
+**Device not reachable after upload**
+- Check that the adapter is properly configured for the target subnet
+- Verify the device IP in `deviceList.csv` is correct
+- Allow more time for the device to boot (check device LED status)
+
+**Upload page doesn't show token field**
+- Device firmware may have different format
+- Try uploading through web UI first
+- Check that the correct template file is being used
+
+## Safety Notes
+
+- ⚠️ The device **will reboot** after configuration upload
+- ⚠️ Perform uploads during a **maintenance window**
+- ⚠️ Ensure the template is in the **correct format** for your device
+- ⚠️ The script requires **administrator privileges** to change network adapter settings
+  - Can be skipped with `--rdp` or `--skip-adapter-change` if your adapter is already on the correct subnet
+
+## Support & Documentation
+
+- See [SETUP_INSTRUCTIONS.md](SETUP_INSTRUCTIONS.md) for installation help
+- Run `python upload_moxa.py --help` for CLI documentation
+- Check device LED status and web interface if uploads fail

@@ -48,6 +48,18 @@ python -m pip install -r requirements.txt
   - Right-click cmd.exe → "Run as administrator"
   - Then run `setup.bat` again
 
+### "OSError" or "Long Path" errors during PySide6 installation
+- **This is a Windows + Microsoft Store Python limitation**, not a blocker
+- The setup script handles this automatically by:
+  - Using `--no-cache-dir` flag to reduce path depths
+  - Checking if core PySide6 is still usable even if some QML components fail
+- **The script will succeed** even if you see these errors — the core GUI will work fine
+- If setup reports "[OK] Core packages are available", you're good to go!
+
+### Can't run `setup.bat` — "script is disabled"
+- PowerShell execution policy issue
+- Solution: Run with admin CMD (not PowerShell) — see instructions above
+
 ## After Installation
 
 Once setup is complete, you can run:
