@@ -73,11 +73,11 @@ def _print_kv(label: str, value: str, label_width: int = 14) -> None:
 
 
 def _tick(msg: str) -> None:
-	print(f"  ✓ {msg}")
+	print(f"  [OK] {msg}")
 
 
 def _arrow(msg: str) -> None:
-	print(f"  → {msg}")
+	print(f"  >> {msg}")
 
 
 def _host_from_base(base: str) -> str:
