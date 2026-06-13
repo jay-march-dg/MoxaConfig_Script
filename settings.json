@@ -1,0 +1,6 @@
+{
+  "device_list_path": "deviceList.csv",
+  "upload_script_path": "upload_moxa.py",
+  "templates_dir": ".",
+  "logs_dir": "logs"
+}

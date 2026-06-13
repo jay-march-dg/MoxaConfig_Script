@@ -15,7 +15,7 @@ from http.cookiejar import CookieJar
 from pathlib import Path
 from typing import Optional
 from urllib.error import HTTPError, URLError
-from urllib.parse import parse_qsl, urlencode, urljoin
+from urllib.parse import urlencode, urljoin
 from urllib.request import HTTPCookieProcessor, Request, build_opener
 
 
